@@ -3,6 +3,7 @@
 var js = [];
 var search_data = {};
 var static_file = ['.jpg','.png','.gif','.css','.svg','.ico','.js'];
+var non_static_file = ['.jsp']
 var key = ["ip","ip_port","domain","path","incomplete_path","url","sfz","mobile","mail","jwt","algorithm","secret"];
 var not_sub_key = ["secret"];
 var nuclei_regex = [
@@ -694,8 +695,20 @@ var nuclei_regex = [
     /["']?account[_-]?sid["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
     /["']?access[_-]?token["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
     /["']?access[_-]?secret["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
-    /["']?access[_-]?key[_-]?secret["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi
+    /["']?access[_-]?key[_-]?secret["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?account["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?password["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?username["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?[\w_-]*?password[\w_-]*?["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?[\w_-]*?username[\w_-]*?["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?[\w_-]*?accesskey[\w_-]*?["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?[\w_-]*?secret[\w_-]*?["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?[\w_-]*?bucket[\w_-]*?["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?[\w_-]*?token[\w_-]*?["']?[^\S\r\n]*[=:][^\S\r\n]*["']?[\w-]+["']?/gi,
+    /["']?[-]+BEGIN \w+ PRIVATE KEY[-]+/gi,
 ]
+var tab_url = {};
+var selected_id = -1;
 
 function get_js(){
 	return js;
@@ -703,17 +716,23 @@ function get_js(){
 function add_js(js_name) {
 	js.push(js_name);
 }
-function unique(arr){
-  if(arr == 'null'){
+function unique(arr1){
+  if(arr1 == 'null'){
     return null;
   }
-  var array=[];
-  for (var i = 0;i<arr.length;i++){
-    if (array.indexOf(arr[i])===-1){
-      array.push(arr[i])
+  let arr2=[];
+  arr1.forEach(function (item,index,array) {
+    // console.log(item, arr2.indexOf(item), arr2)
+    if(arr2.indexOf(item)==-1){
+      arr2.push(item)
     }
-  }
-  return array
+  })
+  // for (var i = 0;i<arr.length;i++){
+  //   if (array.indexOf(arr[i])===-1){
+  //     array.push(arr[i])
+  //   }
+  // }
+  return arr2
 }
 //查找search_data中是否已经存在了，如果已存在则不返回
 function find(arr1,arr2) {
@@ -727,6 +746,12 @@ function find(arr1,arr2) {
 }
 //去重合并两个数组 并集
 function add(arr1,arr2) {
+  if(!arr1){
+    return arr2
+  }
+  if(!arr2){
+    return arr1
+  }
   arr1.forEach(function (item,index,array) {
     if(arr2.indexOf(item)==-1){
       arr2.push(item)
@@ -752,8 +777,13 @@ function collect_static(arr1,arr2) {
   arr1.forEach(function (item,index,array) {
     for (var i = 0; i < static_file.length; i++) {
       if(item.indexOf(static_file[i])!=-1){
-        arr2.push(item)
+        if(static_file[i]=='.js' && item.indexOf('.jsp')!=-1){
+           continue
+        }
         arr3.splice(arr3.indexOf(item),1)
+        if(arr2.indexOf(item)==-1){
+            arr2.push(item)
+        }
       }
     }
   })
@@ -763,7 +793,15 @@ function collect_static(arr1,arr2) {
 function sub_1(arr1) {
   var arr3 = []
   arr1.forEach(function (item,index,array) {
-    arr3.push(item.substring(1,item.length-1))
+    let start = 0
+    let end = 0
+    if(item.startsWith("'") || item.startsWith('"')){
+        start = 1
+    }
+    if(item.endsWith("'") || item.endsWith('"')){
+        end = 1
+    }
+    arr3.push(item.substring(start,item.length-end))
   })
   return arr3
 }
@@ -776,12 +814,13 @@ function get_secret(data) {
     for (var i = nuclei_regex.length - 1; i >= 0; i--) {
         var tmp_result = data.match(nuclei_regex[i]);
         if (tmp_result != null){
-            for(var i in tmp_result){
-                result.push(tmp_result[i]);
+            for(var j in tmp_result){
+                result.push(tmp_result[j]);
             }
         }
-        
+
     }
+    // console.log(data);
     // console.log(result);
     // console.timeEnd();
     return result;
@@ -794,28 +833,115 @@ function extract_info(data) {
   extract_data['sfz'] = data.match(/['"]((\d{8}(0\d|10|11|12)([0-2]\d|30|31)\d{3}$)|(\d{6}(18|19|20)\d{2}(0[1-9]|10|11|12)([0-2]\d|30|31)\d{3}(\d|X|x)))['"]/g);
   extract_data['mobile'] = data.match(/['"](1(3([0-35-9]\d|4[1-8])|4[14-9]\d|5([\d]\d|7[1-79])|66\d|7[2-35-8]\d|8\d{2}|9[89]\d)\d{7})['"]/g);
   extract_data['mail'] = data.match(/['"][a-zA-Z0-9\._\-]*@[a-zA-Z0-9\._\-]{1,63}\.((?!js|css|jpg|jpeg|png|ico)[a-zA-Z]{2,})['"]/g);
-  extract_data['ip'] = data.match(/['"]\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}['"]/g);
-  extract_data['ip_port'] = data.match(/['"]\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,3}['"]/g);
-  extract_data['domain'] = data.match(/['"][a-zA-Z0-9\-\.]*?\.(xin|com|cn|net|com.cn|vip|top|cc|shop|club|wang|xyz|luxe|site|news|pub|fun|online|win|red|loan|ren|mom|net.cn|org|link|biz|bid|help|tech|date|mobi|so|me|tv|co|vc|pw|video|party|pics|website|store|ltd|ink|trade|live|wiki|space|gift|lol|work|band|info|click|photo|market|tel|social|press|game|kim|org.cn|games|pro|men|love|studio|rocks|asia|group|science|design|software|engineer|lawyer|fit|beer|我爱你|中国|公司|网络|在线|网址|网店|集团|中文网)['"]/g);
+  extract_data['ip'] = data.match(/['"](([a-zA-Z0-9]+:)?\/\/)?\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(\/.*?)?['"]/g);
+  extract_data['ip_port'] = data.match(/['"](([a-zA-Z0-9]+:)?\/\/)?\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}(\/.*?)?['"]/g);
+  extract_data['domain'] = data.match(/['"](([a-zA-Z0-9]+:)?\/\/)?[a-zA-Z0-9\-\.]*?\.(xin|com|cn|net|com.cn|vip|top|cc|shop|club|wang|xyz|luxe|site|news|pub|fun|online|win|red|loan|ren|mom|net.cn|org|link|biz|bid|help|tech|date|mobi|so|me|tv|co|vc|pw|video|party|pics|website|store|ltd|ink|trade|live|wiki|space|gift|lol|work|band|info|click|photo|market|tel|social|press|game|kim|org.cn|games|pro|men|love|studio|rocks|asia|group|science|design|software|engineer|lawyer|fit|beer|tw|我爱你|中国|公司|网络|在线|网址|网店|集团|中文网)(\:\d{1,5})?(\/)?['"]/g);
   extract_data['path'] = data.match(/['"](?:\/|\.\.\/|\.\/)[^\/\>\< \)\(\{\}\,\'\"\\]([^\>\< \)\(\{\}\,\'\"\\])*?['"]/g);
   extract_data['incomplete_path'] = data.match(/['"][^\/\>\< \)\(\{\}\,\'\"\\][\w\/]*?\/[\w\/]*?['"]/g);
-  extract_data['url'] = data.match(/['"](([a-zA-Z0-9]+:)?\/\/)?[a-zA-Z0-9\-\.]*?\.(xin|com|cn|net|com.cn|vip|top|cc|shop|club|wang|xyz|luxe|site|news|pub|fun|online|win|red|loan|ren|mom|net.cn|org|link|biz|bid|help|tech|date|mobi|so|me|tv|co|vc|pw|video|party|pics|website|store|ltd|ink|trade|live|wiki|space|gift|lol|work|band|info|click|photo|market|tel|social|press|game|kim|org.cn|games|pro|men|love|studio|rocks|asia|group|science|design|software|engineer|lawyer|fit|beer|我爱你|中国|公司|网络|在线|网址|网店|集团|中文网)(\:\d{1,5})?(\/.*?)?['"]/g);
+  extract_data['url'] = data.match(/['"](([a-zA-Z0-9]+:)?\/\/)?[a-zA-Z0-9\-\.]*?\.(xin|com|cn|net|com.cn|vip|top|cc|shop|club|wang|xyz|luxe|site|news|pub|fun|online|win|red|loan|ren|mom|net.cn|org|link|biz|bid|help|tech|date|mobi|so|me|tv|co|vc|pw|video|party|pics|website|store|ltd|ink|trade|live|wiki|space|gift|lol|work|band|info|click|photo|market|tel|social|press|game|kim|org.cn|games|pro|men|love|studio|rocks|asia|group|science|design|software|engineer|lawyer|fit|beer|tw|我爱你|中国|公司|网络|在线|网址|网店|集团|中文网)(\:\d{1,5})?(\/.*?)?['"]/g);
   extract_data['jwt'] = data.match(/['"](ey[A-Za-z0-9_-]{10,}\.[A-Za-z0-9._-]{10,}|ey[A-Za-z0-9_\/+-]{10,}\.[A-Za-z0-9._\/+-]{10,})['"]/g);
   // search_data['algorithm'] = data.match(/\WBase64\.encode\(|\WBase64\.decode\(|\Wbtoa\(|\Watob\(|\WCryptoJS\.AES\.|\WCryptoJS\.DES\.|\WJSEncrypt\(|\Wrsa\.|\WKJUR\.|\W$\.md5\(|\Wmd5\(|\Wsha1\(|\Wsha256\(|\Wsha512\(/gi);
   extract_data['algorithm'] = data.match(/\W(Base64\.encode|Base64\.decode|btoa|atob|CryptoJS\.AES|CryptoJS\.DES|JSEncrypt|rsa|KJUR|$\.md5|md5|sha1|sha256|sha512)[\(\.]/gi);
   extract_data['secret'] = get_secret(data);
+  if (extract_data['url']){
+        extract_data['url'].map((url)=>{
+        extract_data['ip'] = add(extract_data['ip'], url.match(/['"](([a-zA-Z0-9]+:)?\/\/)?\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/g))
+        extract_data['ip_port'] = add(extract_data['ip_port'], url.match(/['"](([a-zA-Z0-9]+:)?\/\/)?\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\:\d{1,5}(\/.*?)?['"]/g))
+        extract_data['domain'] = add(extract_data['domain'], url.match(/['"](([a-zA-Z0-9]+:)?\/\/)?[a-zA-Z0-9\-\.]*?\.(xin|com|cn|net|com.cn|vip|top|cc|shop|club|wang|xyz|luxe|site|news|pub|fun|online|win|red|loan|ren|mom|net.cn|org|link|biz|bid|help|tech|date|mobi|so|me|tv|co|vc|pw|video|party|pics|website|store|ltd|ink|trade|live|wiki|space|gift|lol|work|band|info|click|photo|market|tel|social|press|game|kim|org.cn|games|pro|men|love|studio|rocks|asia|group|science|design|software|engineer|lawyer|fit|beer|tw|我爱你|中国|公司|网络|在线|网址|网店|集团|中文网)(\:\d{1,5})?/g))
+      })
+  }
   return extract_data;
 }
 
-chrome.runtime.onMessage.addListener(
-  function(request, sender, sendResponse) {
-    if (request.greeting == "result"){
-      var tmp_data = request.data;
-      tmp_data = extract_info(tmp_data);
-      tmp_data['current'] = request.current;
+var myHeaders = new Headers();
+myHeaders.append('accept', '*/*');
 
-      //遍历所有数据类型
-      for (var i = 0; i < key.length; i++) {
+function webhook(data) {
+    // console.log(search_data[data]);
+    data = JSON.stringify(search_data[data]);
+    // console.log(data);
+    chrome.storage.local.get(["webhook_setting"], function(settings){
+        if(!settings || !settings["webhook_setting"] || settings["webhook_setting"] == {} || settings["webhook_setting"] ==undefined){
+            // console.log('获取webhook_setting失败');
+            return;
+        }
+        
+        let webhookInit = {
+            method: 'GET',
+            headers: myHeaders,
+            mode: 'cors',
+            cache: 'default',
+            credentials: 'include'
+        };
+        let webhookHeaders = new Headers();
+        if (settings["webhook_setting"]['url']!="") {
+            var url = settings["webhook_setting"]['url'];
+            if (settings["webhook_setting"]['method']=="GET"){
+                url = url + "?" +  settings["webhook_setting"]['arg'] + "=" + data;
+            }else if (settings["webhook_setting"]['method']=="POST"){
+                webhookHeaders.append("Content-Type", "application/json");
+                webhookInit['method'] = "POST";
+                if (settings["webhook_setting"]['arg']!=""){
+                    webhookInit['body'] = settings["webhook_setting"]['arg'] + "=" + data
+                }else{
+                    webhookInit['body'] = data;
+                }
+            }else{
+                console.log("webhook method error:"+settings["webhook_setting"]['method']);
+            }
+            if (settings["webhook_setting"]['headers']!={}){
+                for (let i in settings["webhook_setting"]['headers']) {
+                    webhookHeaders.append(i,settings["webhook_setting"]['headers'][i]);
+                }
+            }
+            webhookInit["headers"] = webhookHeaders;
+            let webhookRequest = new Request(url, webhookInit);
+            // console.log(webhookRequest);
+            fetch(webhookRequest, webhookInit).then(function(response) {
+                // console.log(response);
+            }).catch(err=>{ console.log("webhook fetch error",err)});
+        }
+    });
+}
+
+function refresh_count() {
+  const cur = tab_url[selected_id];
+  let cnt = 0;
+  for (const k in search_data[cur]) {
+    if (k == "done" || k == "tasklist" || k == "donetasklist" || k == "current" || k == "pretasknum")
+      continue;
+    const v = search_data[cur][k];
+    if (v == "🈚️" || v == "") continue;
+    cnt++;
+  }
+  chrome.action.setBadgeText({ text: "" + cnt });
+  if(search_data[cur] && search_data[cur]['donetasklist'] && search_data[cur]['pretasknum'] && search_data[cur]['donetasklist'].length==search_data[cur]['pretasknum']){
+    console.log(search_data[cur]['pretasknum'],search_data[cur]['donetasklist'].length,search_data[cur]['tasklist'].length)
+    search_data[cur]['done'] = 'done'
+    chrome.storage.local.set({["findsomething_result_"+cur]: search_data[cur]}, function(){});
+    refresh_storage_expire_index(cur)
+    webhook(cur);
+  }
+
+}
+
+function refresh_storage_expire_index(cur) {
+  console.log("refresh_storage_expire_index:"+cur)
+  chrome.storage.local.get(["expire_index"], function(expire_index){
+    expire_index = expire_index["expire_index"]
+    if(!expire_index){
+      expire_index = {}
+    }
+    const today = new Date();
+    const todaystr = today.toLocaleDateString('cn', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '');
+    expire_index[cur]=todaystr;
+    chrome.storage.local.set({["expire_index"]: expire_index}, function(){} )
+  })
+}
+
+function persist_tmp_data(tmp_data, req_url, current) {
+    //遍历所有数据类型
+    for (var i = 0; i < key.length; i++) {
         //如果传入的数据没有这个类型，就看下一个
         if (tmp_data[key[i]] == null){
           continue;
@@ -824,16 +950,20 @@ chrome.runtime.onMessage.addListener(
         if (not_sub_key.indexOf(key[i])<0){
           tmp_data[key[i]] = sub_1(tmp_data[key[i]])
         }
-        //如果search_data有历史数据，进行检查
-        if (tmp_data['current'] in search_data){
-          for (var j = 0; j < key.length; j++) {
-            if (search_data[tmp_data['current']][key[j]]!=null){
-              tmp_data[key[i]] = jiaoji(unique(tmp_data[key[i]]),find(unique(tmp_data[key[i]]),search_data[tmp_data['current']][key[j]]))
-            }
-          }
-        }else{
-          search_data[tmp_data['current']] = {}
-        }
+        tmp_data[key[i]].map((item)=>{
+            search_data[tmp_data['current']]['source'][item] = req_url
+        })
+        //如果search_data有历史数据，进行检查--20230625 这里没看懂，先注释看看
+        // console.log(tmp_data[key[i]])
+        // if (tmp_data['current'] in search_data){
+        //   for (var j = 0; j < key.length; j++) {
+        //     if (search_data[tmp_data['current']][key[j]]!=null){
+        //       tmp_data[key[i]] = jiaoji(unique(tmp_data[key[i]]),find(unique(tmp_data[key[i]]),search_data[tmp_data['current']][key[j]]))
+        //     }
+        //     // console.log(tmp_data[key[i]], search_data[tmp_data['current']][key[j]])
+        //   }
+        // }
+        // console.log(tmp_data[key[i]])
         if (tmp_data['current'] in search_data && search_data[tmp_data['current']][key[i]]!=null ){
           var search_data_value = unique(add(search_data[tmp_data['current']][key[i]],tmp_data[key[i]])).sort()
           if ('static' in search_data[tmp_data['current']]){
@@ -850,14 +980,132 @@ chrome.runtime.onMessage.addListener(
           }else{
             var res = collect_static(search_data_value,[])
           }
-          search_data[tmp_data['current']]['static'] = res['static']
-          search_data[tmp_data['current']][key[i]] = res['arr1']
+          search_data[tmp_data['current']]['static'] = unique(res['static'])
+          search_data[tmp_data['current']][key[i]] = unique(res['arr1'])
         }
-      }
+    }
+
+}
+
+chrome.runtime.onMessage.addListener(
+  function(request, sender, sendResponse) {
+    var abort_controller = new AbortController();
+    var myHeaders = new Headers();
+    myHeaders.append('accept', '*/*');
+    var myInit = { method: 'GET',
+                   headers: myHeaders,
+                   mode: 'cors',
+                   cache: 'default',
+                   credentials: 'include',
+                   signal: abort_controller.signal
+    };
+    if (request.greeting == "find"){
+        // console.log(request.data);
+        if(request.current in search_data){
+            search_data[request.current]['done'] = '';
+            search_data[request.current]['tasklist'] = [];
+            search_data[request.current]['donetasklist'] = [];
+        }else{
+            search_data[request.current] = {'current':request.current, 'tasklist': [], 'donetasklist': [], 'source': {}};
+        }
+        let tmp_data = extract_info(request.source);
+        tmp_data['current'] = request.current;
+        tmp_data['static'] = null;
+        console.log(tmp_data)
+        persist_tmp_data(tmp_data, request.current, request.current);
+        chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
+        tab_url[sender.tab.id] = request.current;
+        refresh_count();
+        let promiseTask = [];
+        search_data[request.current]['pretasknum'] = request.data.length
+        request.data.map((req_url)=>{
+            try{
+                search_data[request.current]['tasklist'].push(0);
+                if(req_url==request.current){
+                    search_data[request.current]['donetasklist'].push(0);
+                    return
+                }
+                var myRequest = new Request(req_url, myInit);
+                let p = fetch(myRequest,myInit).then(function(response) {
+                    // search_data[request.current]['tasklist'].push(0);
+                    // console.log(response);
+                    response.text().then(function(text) {
+                    // console.log(text);
+                    let tmp_data=text;
+                    tmp_data = extract_info(tmp_data);
+                    tmp_data['current'] = request.current;
+                    persist_tmp_data(tmp_data, req_url, request.current);
+                    search_data[request.current]['donetasklist'].push(0);
+                    chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
+                    tab_url[sender.tab.id] = request.current;
+                    refresh_count();
+
+                    });
+                }).catch(err=>{
+                    console.log("fetch error",err);
+                    search_data[request.current]['donetasklist'].push(0);
+                    refresh_count();
+                    chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
+                });
+                promiseTask.push(p);
+            }
+            catch (e){
+                // console.log(e);
+                search_data[request.current]['donetasklist'].push(0);
+            }
+        });
+        chrome.storage.local.get(["fetch_timeout"], function(settings){
+            if(settings["fetch_timeout"] == true){
+
+                let abort_promise = new Promise(function(resolve, reject) {
+                    setTimeout(function() {
+                        resolve(new Response("findsomething fetch timeout", {status: 504, statusText: "timeout"}) )
+                        abort_controller.abort();
+                    }, 2000);
+                });
+                promiseTask.push(abort_promise)
+
+                Promise.race(promiseTask).then(function() {
+                        // webhook(request.current);
+                        // search_data[request.current]['done'] = 'done';
+                        // console.log(search_data[request.current])
+                        refresh_count();
+                        chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
+                    }).catch(function(err) {
+                        console.log(err);
+                        abort_controller = null;
+                    });
+
+            }else{
+                Promise.all(promiseTask).then(function() {
+                    // webhook(request.current);
+                    // search_data[request.current]['done'] = 'done';
+                    // console.log(search_data[request.current])
+                    refresh_count();
+                    chrome.storage.local.set({["findsomething_result_"+request.current]: search_data[request.current]}, function(){});
+                });
+            }
+        });
+        return true;
+    }else if(request.greeting == "get"){
+        sendResponse(search_data[request.current]);
+        return true;
     }
 });
 
+chrome.tabs.onUpdated.addListener(function (tabId, props) {
+    if (props.status == "complete" && tabId == selected_id)
+        refresh_count();
+});
 
-function result(host){
-  return search_data[host];
-}
+chrome.tabs.onActivated.addListener(function (activeInfo) {
+    selected_id = activeInfo.tabId;
+    refresh_count();
+});
+
+chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+    if(tabs && tabs[0]){
+        selected_id = tabs[0].id;
+        refresh_count();
+    }
+});
